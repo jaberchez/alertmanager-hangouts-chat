@@ -1,9 +1,5 @@
 ###############################################################################################################
 # Description: Webhook to send message to hangouts chat
-#
-# Build:       docker build -t adeo-docker-lmes-devops-release.jfrog.io/devops/alertmanager-hangouts-chat:1.0.0 .
-# 
-# Departament: Innovation
 ###############################################################################################################
 
 # Main
