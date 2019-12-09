@@ -1,0 +1,227 @@
+#! /usr/bin/python3
+
+###################################################################################################################
+# Descripcion: Webhook API REST for DevOps team. I sends the alerts to the Hangout Chat. It is used by Alertmanager
+#
+# API:         - /api/v1/hangout
+#              - /api/v1/health
+#
+# Departament: Innovation 
+###################################################################################################################
+
+# Imports
+#------------------------------------------------------------------------------------------------------------------
+from flask import Flask, abort, jsonify, make_response, request
+from httplib2 import Http
+
+import os
+import sys
+import re
+import signal
+import json
+import urllib
+#import inspect
+#------------------------------------------------------------------------------------------------------------------
+
+# Variables
+#------------------------------------------------------------------------------------------------------------------
+app     = Flask(__name__)
+token   = None
+#------------------------------------------------------------------------------------------------------------------
+
+# Functions
+#==================================================================================================================
+# Description: Endpoint for kubernetes's health checks (this script runs as container in kubernetes)
+# Parameters:  None
+# Return:      Result in json format
+
+@app.route('/api/v1/health', methods = ['GET'])
+def get_health_check_v1():
+   if request.method == 'GET':
+      return jsonify({'result': 'UP'})
+   else:
+      print_console("[ERROR] HTTP verb not allow")
+      #abort(400, "HTTP verb not allow")
+      return jsonify({'message':'HTTP verb not allow'}), 400
+#==================================================================================================================
+
+#==================================================================================================================
+# Description: Endpoint for forward the request to hangouts chat
+# Parameters:  None
+# Return:      Result in json format
+
+@app.route('/api/v1/hangout', methods = ['POST'])
+def forward_hangouts_chat_v1():
+   global token
+
+   json_str = ""
+   res      = None
+
+   if request.method == 'POST':
+      # Get token
+      verify_token = request.args.get('auth_token')
+
+      # Check token
+      if token != verify_token:
+         print_console("[ERROR] Bad token")
+         return jsonify({'message':'bad token'}), 401
+
+      # Get url hangout webhook
+      url_hangout = '{}'.format(request.args.get('url_hangout'))
+
+      if url_hangout == None or len(url_hangout) == 0:
+         print_console("[ERROR] URL hangout not found")
+         return jsonify({'message':'url hangout not found'}), 500
+
+      # Get token hangout
+      # Notice: The webhook url also has a token parameter
+      token_hangout = '{}'.format(request.args.get('token'))
+
+      if token_hangout == None or len(token_hangout) == 0:
+         print_console("[ERROR] Token hangout not found")
+         return jsonify({'message':'token hangout not found'}), 500
+
+      # Build the correct url
+      url_hangout     = '{}&token={}'.format(url_hangout, token_hangout)
+      message_headers = {'Content-Type': 'application/json; charset=UTF-8'}
+      http_obj        = Http()
+
+      # Convert to string the json response
+      json_str        = json.dumps(request.json)
+
+      # Convert to python dictionary
+      res         = json.loads(json_str)
+
+      if 'alerts' in res:
+         response     = None
+         text         = ''
+         text_tmp     = ''
+         cont_alerts  = 0
+         
+         for alert in res['alerts']:
+            # Don't send TestAlert resolved
+            if alert['labels']['alertname'] == 'TestAlert' and (res['status'].lower() == 'resolved' or alert['status'].lower() == 'resolved'):
+               continue
+
+            cont_alerts += 1
+            text_tmp    += "\n*Alert status:* {}\n".format(alert['status'])
+
+            # We show the text Labels in bold (*Labels*)
+            text_tmp    += "*Labels*\n"
+   
+            # We add all labels to the message
+            for label in alert['labels']:
+               text_tmp += "{}: {}\n".format(label, alert['labels'][label])
+
+            if len(alert['annotations']) > 0:
+               # We also show the text Annotations in bold (*Annotations*)
+               text_tmp += "*Annotations*\n"
+   
+               # We also add all annotations to the message
+               for annotation in alert['annotations']:
+                  text_tmp += "{}: {}\n".format(label, alert['annotations'][annotation])
+
+         if cont_alerts > 0:
+            text  = "*[{}] Alerts Firing*\n".format(cont_alerts)
+            text += text_tmp
+   
+            # Build the correct message for hangouts
+            message = {
+               'text': "{}".format(text)
+            }
+   
+            # Send to hangout room
+            try:
+               response = http_obj.request(
+                  uri=url_hangout,
+                  method='POST',
+                  headers=message_headers,
+                  body=json.dumps(message)
+               )
+            
+               # Check the response
+               # Notice: response return a tuple. The first element contains the
+               #         status
+               r = response[0]   
+               
+               if 'status' in r:
+                  if int(r['status']) == 200:
+                     return jsonify({'message':'OK'}), 200
+                  
+               print_console("[ERROR]: {}".format(response))
+               return jsonify({'message':'{}'.format(response)}), 500
+            except Exception as e:
+               print_console("[ERROR]: {}".format(e))
+               return jsonify({'message':'{}'.format(e)}), 500 
+   #else:   
+   #   print_console("[ERROR]: Request method unauthorized")
+   #   return jsonify({'message':'Request method unauthorized'}), 400
+
+   return jsonify({'message':'OK'}), 200
+#==================================================================================================================
+
+#==================================================================================================================
+# Description: Handle signals
+# Parameters:  Signal and frame of the object
+# Return:      Nothing, just exit
+
+def signal_handler(sig, frame):
+   name_signal = ''
+
+   if sig == 2:
+      name_signal = "SIGINT"
+   elif sig == 15:
+      name_signal = "SIGTERM"
+   else:
+      name_signal = "UNKNOWN"
+
+   print("\nCatch signal: " + name_signal)
+   sys.exit(0)
+#==================================================================================================================
+
+#==================================================================================================================
+# Description: Print the message to console
+# Parameters:  Message
+# Return:      Nothing
+
+def print_console(message):
+   #print("Line: {}".format(inspect.currentframe().f_back.f_lineno), file=sys.stderr)
+   print("{}".format(message), file=sys.stderr)
+#==================================================================================================================
+
+# Main
+#******************************************************************************************************************
+if __name__ == '__main__':
+   # Captura de signals
+   signal.signal(signal.SIGTERM, signal_handler)
+   signal.signal(signal.SIGINT,  signal_handler)
+
+   # These environment variables allow to change some aspects of the application from kubernetes
+   # without recreate the docker image
+   app_debug  = os.environ.get('APP_DEBUG')
+   app_port   = os.environ.get('APP_PORT', 8080)
+   token      = os.environ.get('TOKEN')
+
+   if app_debug == None:
+      app_debug = False
+   elif app_debug.lower() == 'true':
+      app_debug = True
+   elif app_debug.lower() == 'false':
+      app_debug = False
+   else:
+      print("ERROR: APP_DEBUG environment variable must be True or False")
+      sys.exit(1)
+
+   if not re.match(r'^\d+$', str(app_port)):
+      print("ERROR: APP_PORT environment variable must be numeric")
+      sys.exit(1)
+   else:
+      app_port = int(app_port)
+
+   if token == None:
+      print("ERROR: TOKEN not found")
+      sys.exit(1)
+
+   # Run the application
+   app.run(host = '0.0.0.0', port = int(app_port), debug = app_debug)
+#******************************************************************************************************************

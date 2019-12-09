@@ -1,0 +1,28 @@
+########################################################################################################
+# Descripcion: Ingress rules to access alertmanager-hangouts-chat webhook
+#
+# Departament: Innovacion
+########################################################################################################
+
+# Main
+#*******************************************************************************************************
+apiVersion: extensions/v1beta1
+kind: Ingress
+
+metadata:
+  name: alertmanager-hangouts-chat
+  namespace: webhooks
+
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+
+spec:
+  rules:
+  - host: alertmanager-hangouts-chat.example.com
+    http:
+      paths:
+      - path: /
+        backend:
+          serviceName: alertmanager-hangouts-chat
+          servicePort: 8080
+#*******************************************************************************************************

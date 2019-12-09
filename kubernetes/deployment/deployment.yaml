@@ -1,0 +1,86 @@
+########################################################################################################
+# Descripcion: Deployment to deploy alertmanager-hangouts-chat-v1
+########################################################################################################
+
+# Main
+#*******************************************************************************************************
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: alertmanager-hangouts-chat-v1
+  namespace: webhooks
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: alertmanager-hangouts-chat
+      version: v1
+
+  template:
+    metadata:
+      labels:
+        app: alertmanager-hangouts-chat
+        version: v1
+
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: "app"
+                    operator: In
+                    values:
+                      - "alertmanager-hangouts-chat"
+
+                  - key: "version"
+                    operator: In
+                    values:
+                      - "v1"
+
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: alertmanager-hangouts-chat
+          image: YOUR_DOCKER_REGISTRY/webhooks/alertmanager-hangouts-chat:YOUR_VERSION
+
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: token-alertmanager-hangouts-chat
+                  key: token
+
+          ports:
+            - containerPort: 8080
+              name: web
+
+          livenessProbe:
+            httpGet:
+              path: '/api/v1/health'
+              port: web
+
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 4
+
+          readinessProbe:
+            httpGet:
+              path: '/api/v1/health'
+              port: web
+
+            initialDelaySeconds: 5
+            timeoutSeconds: 3
+            periodSeconds: 5
+            successThreshold: 1
+            failureThreshold: 4
+
+          imagePullPolicy: 'Always'
+#*******************************************************************************************************

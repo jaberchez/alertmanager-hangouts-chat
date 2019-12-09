@@ -1,0 +1,28 @@
+########################################################################################################
+# Descripcion: Service to connect with the webhook
+########################################################################################################
+
+# Main
+#*******************************************************************************************************
+kind: Service
+apiVersion: v1
+
+metadata:
+  name: alertmanager-hangouts-chat
+  namespace: webhooks
+
+  labels:
+    app: "alertmanager-hangouts-chat"
+
+spec:
+  ports:
+    - name: web
+      port: 8080
+      targetPort: web
+
+  selector:
+    app: "alertmanager-hangouts-chat"
+    version: "v1"
+
+  type: ClusterIP
+#*******************************************************************************************************
